@@ -36,10 +36,9 @@ class LeverScraper(BaseScraper):
 
     def _matches(self, entry: dict, keywords: set[str]) -> bool:
         categories = entry.get("categories", {})
-        location = categories.get("location", "") if isinstance(categories, dict) else ""
         commitment = categories.get("commitment", "") if isinstance(categories, dict) else ""
-        searchable = f"{entry.get('text', '')} {location} {commitment}".lower()
-        return any(kw in searchable for kw in keywords) or "remote" in searchable
+        searchable = f"{entry.get('text', '')} {commitment}".lower()
+        return any(kw in searchable for kw in keywords)
 
     def _parse_entry(self, entry: dict, company: str) -> JobListing:
         categories = entry.get("categories", {})

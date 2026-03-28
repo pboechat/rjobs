@@ -317,9 +317,18 @@ async def digest_resume(resume_text: str, config: Config) -> ApplicantProfile:
         if json_str.endswith("```"):
             json_str = json_str[:-3]
 
+    parsed = None
     try:
         parsed = json.loads(json_str)
     except json.JSONDecodeError:
+        # LLM may have included prose around the JSON; try to extract it
+        match = re.search(r"\{[\s\S]*\}", json_str)
+        if match:
+            try:
+                parsed = json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
+    if parsed is None:
         logger.error("Could not parse LLM response as JSON. Raw response:\n%s", content[:1000])
         raise RuntimeError("LLM did not return valid JSON for the resume digest")
 

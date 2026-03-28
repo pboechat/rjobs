@@ -57,11 +57,9 @@ class GitHubRemoteScraper(BaseScraper):
             region = cells[1].strip() if len(cells) > 1 else ""
             extra = cells[2].strip() if len(cells) > 2 else ""
 
-            searchable = f"{company_name} {region} {extra}".lower()
+            searchable = f"{company_name} {extra}".lower()
             if not any(kw in searchable for kw in kw_lower):
-                # Also include if the word "remote" appears
-                if "remote" not in searchable:
-                    continue
+                continue
 
             jobs.append(
                 JobListing(

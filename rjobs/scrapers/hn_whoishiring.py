@@ -14,6 +14,18 @@ SALARY_PATTERN = re.compile(
     r"\$[\d,]+(?:\s*[-–]\s*\$?[\d,]+)?|[\d]+k\s*[-–]\s*[\d]+k", re.IGNORECASE
 )
 
+# Patterns that indicate a pipe-field is a location, not a job title.
+_LOCATION_INDICATORS = re.compile(
+    r"(?i)"
+    r"(?:^(?:remote|onsite|on-site|hybrid|full[- ]?time|part[- ]?time|contract)\b)"
+    r"|(?:\b(?:remote|onsite|on-site)\b)"
+    r"|(?:,\s*(?:CA|NY|MA|TX|WA|OR|IL|CO|NC|VA|GA|FL|PA|OH|UK|US|USA|EU)\b)"
+    r"|(?:^[A-Z][\w\s]*,\s*[A-Z]{2,}$)"  # "City, ST" pattern
+    r"|(?:\b(?:San Francisco|New York|NYC|Boston|Austin|Seattle|Chicago|"
+    r"London|Berlin|Toronto|Paris|Singapore|India|Europe|"
+    r"North America|South America|LATAM|EMEA|APAC)\b)"
+)
+
 
 class HNWhoIsHiringScraper(BaseScraper):
     source = Source.HN_WHOISHIRING
@@ -68,25 +80,46 @@ class HNWhoIsHiringScraper(BaseScraper):
             return None
 
         text = data.get("text", "")
-        text_lower = text.lower()
 
+        # Skip short comments or comments that are clearly meta-discussion
+        # (no URL and no pipe-separated header = not a real job post)
+        clean = re.sub(r"<[^>]+>", "\n", text).strip()
+        lines = [ln.strip() for ln in clean.split("\n") if ln.strip()]
+        if not lines:
+            return None
+
+        header = lines[0]
+        has_pipes = "|" in header
+        has_url = bool(URL_PATTERN.search(clean))
+
+        # Real job posts almost always have a pipe-delimited header or a URL.
+        # Comments without either are meta-discussion or noise.
+        if not has_pipes and not has_url:
+            return None
+
+        # Require at least 2 pipe-separated fields for a valid header;
+        # otherwise the "title" would just be the entire first line.
+        parts = PIPE_PATTERN.split(header) if has_pipes else []
+        if has_pipes and len(parts) < 2:
+            return None
+
+        text_lower = text.lower()
         if not any(kw in text_lower for kw in keywords):
             return None
 
-        return self._extract_job(text, comment_id, data.get("time"))
+        return self._extract_job(text, comment_id, data.get("time"), lines, parts)
 
-    def _extract_job(self, text: str, comment_id: int, timestamp: int | None) -> JobListing:
-        # Strip HTML tags for plain-text parsing
-        clean = re.sub(r"<[^>]+>", "\n", text).strip()
-        lines = [ln.strip() for ln in clean.split("\n") if ln.strip()]
+    def _extract_job(
+        self,
+        text: str,
+        comment_id: int,
+        timestamp: int | None,
+        lines: list[str],
+        parts: list[str],
+    ) -> JobListing:
+        clean = "\n".join(lines)
 
-        # First line is usually "Company | Role | Location | ..."
-        header = lines[0] if lines else ""
-        parts = PIPE_PATTERN.split(header)
-
-        company = parts[0].strip() if len(parts) >= 1 else "Unknown"
-        title = parts[1].strip() if len(parts) >= 2 else header
-        location = parts[2].strip() if len(parts) >= 3 else None
+        company, title, location = self._classify_header_parts(parts, clean)
 
         salary_match = SALARY_PATTERN.search(clean)
         salary = salary_match.group(0) if salary_match else None
@@ -114,3 +147,53 @@ class HNWhoIsHiringScraper(BaseScraper):
             description=description,
             posted_date=posted,
         )
+
+    @staticmethod
+    def _is_location_like(s: str) -> bool:
+        """Return True if *s* looks like a location or employment type, not a role."""
+        return bool(_LOCATION_INDICATORS.search(s))
+
+    @staticmethod
+    def _is_url_like(s: str) -> bool:
+        return s.startswith(("http://", "https://", "www."))
+
+    def _classify_header_parts(
+        self, parts: list[str], body: str
+    ) -> tuple[str, str, str | None]:
+        """Classify pipe-separated header fields into (company, title, location).
+
+        HN posts use several formats:
+          A) Company | Role | Location | ...       (ideal)
+          B) Company | Location | Type | ...       (no role in header)
+          C) URL\\n| Location | Role | ...          (URL-first, pipes in body)
+          D) Company | Role                        (no location)
+        """
+        if not parts:
+            return ("Unknown", "HN Job Post", None)
+
+        # Filter out parts that are just URLs
+        cleaned = [p.strip() for p in parts if not HNWhoIsHiringScraper._is_url_like(p.strip())]
+        if not cleaned:
+            return ("Unknown", "HN Job Post", None)
+
+        company = cleaned[0]
+
+        if len(cleaned) == 1:
+            return (company, "HN Job Post", None)
+
+        # If parts[1] looks like a location/employment-type, the header is
+        # format B (Company | Location | ...) rather than A (Company | Role | Location).
+        if self._is_location_like(cleaned[1]):
+            # Try to find the role in remaining parts
+            title = None
+            location = cleaned[1]
+            for p in cleaned[2:]:
+                if not self._is_location_like(p) and not SALARY_PATTERN.search(p):
+                    title = p
+                    break
+            return (company, title or "HN Job Post", location)
+
+        # Standard format A: Company | Role | Location | ...
+        title = cleaned[1]
+        location = cleaned[2] if len(cleaned) >= 3 else None
+        return (company, title, location)

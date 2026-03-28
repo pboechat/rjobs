@@ -35,7 +35,6 @@ class RemoteOKScraper(BaseScraper):
                 entry.get("position", ""),
                 entry.get("company", ""),
                 entry.get("description", ""),
-                entry.get("location", ""),
                 " ".join(entry.get("tags", [])),
             ]
         ).lower()

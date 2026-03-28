@@ -37,9 +37,8 @@ class GreenhouseScraper(BaseScraper):
         return jobs
 
     def _matches(self, entry: dict, keywords: set[str]) -> bool:
-        location = entry.get("location", {}).get("name", "")
-        searchable = f"{entry.get('title', '')} {location}".lower()
-        return any(kw in searchable for kw in keywords) or "remote" in searchable
+        searchable = entry.get("title", "").lower()
+        return any(kw in searchable for kw in keywords)
 
     def _parse_entry(self, entry: dict, company: str) -> JobListing:
         location = entry.get("location", {})

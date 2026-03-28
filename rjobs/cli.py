@@ -4,28 +4,20 @@ import argparse
 import asyncio
 import logging
 import random
+import re
 import sys
 from pathlib import Path
 
 from rich.console import Console
 
 from rjobs import __version__
-from rjobs.config import (
-    DEFAULT_CONFIG_PATH,
-    load_config,
-    write_cookie_templates,
-    write_template_config,
-)
+from rjobs.config import (DEFAULT_CONFIG_PATH, load_config,
+                          write_cookie_templates, write_template_config)
 from rjobs.models import JobListing, Source
 from rjobs.output import display_table, to_csv, to_json
-from rjobs.profile import (
-    digest_resume,
-    extract_text_from_file,
-    is_linkedin_profile_url,
-    load_profile,
-    save_profile,
-    scrape_linkedin_profile,
-)
+from rjobs.profile import (digest_resume, extract_text_from_file,
+                           is_linkedin_profile_url, load_profile, save_profile,
+                           scrape_linkedin_profile)
 from rjobs.ranking import rank_jobs
 from rjobs.scrapers import build_http_client, get_scrapers
 
@@ -205,6 +197,102 @@ async def _handle_parse_resume(args: argparse.Namespace) -> None:
     sys.exit(0)
 
 
+# Location patterns that indicate a truly remote position
+_REMOTE_INDICATORS = re.compile(
+    r"\b(remote|worldwide|anywhere|global|distributed|work from home|wfh)\b",
+    re.IGNORECASE,
+)
+
+# Words commonly found in software/tech job titles.  Used both for deriving
+# role keywords from target_roles *and* for broadening the title-relevance
+# filter so that multi-word keywords like "graphics engineer" also let
+# through "Senior Software Engineer" (via the "engineer" component).
+_SOFTWARE_ROLE_WORDS = frozenset({
+    "engineer", "developer", "programmer", "architect",
+    "devops", "sre", "scientist", "hacker", "coder",
+})
+
+# Seniority / prefix words stripped when deriving keywords from target_roles.
+_SENIORITY_PREFIXES = re.compile(
+    r"^(senior|junior|lead|principal|staff|chief|head|vp|intern)\s+",
+    re.IGNORECASE,
+)
+
+
+def _derive_role_keywords(profile) -> list[str]:
+    """Derive useful search keywords from *target_roles* when role_keywords is empty."""
+    keywords: list[str] = []
+    for role in profile.target_roles:
+        # Full role (minus seniority prefix) as a keyword
+        cleaned = _SENIORITY_PREFIXES.sub("", role).strip()
+        if cleaned:
+            keywords.append(cleaned.lower())
+    return list(dict.fromkeys(keywords))  # dedupe, preserve order
+
+
+def _is_remote_location(location: str | None) -> bool:
+    """Return True if *location* contains a remote indicator."""
+    if not location:
+        # No location info – give benefit of the doubt
+        return True
+    return bool(_REMOTE_INDICATORS.search(location))
+
+
+def _filter_remote(jobs: list[JobListing]) -> list[JobListing]:
+    """Discard listings whose location lacks any remote indicator."""
+    kept = [j for j in jobs if _is_remote_location(j.location)]
+    removed = len(jobs) - len(kept)
+    if removed:
+        logger.info(
+            "Remote-only filter removed %d/%d listings with non-remote locations",
+            removed,
+            len(jobs),
+        )
+    return kept
+
+
+def _filter_title_relevance(
+    jobs: list[JobListing], role_keywords: list[str]
+) -> list[JobListing]:
+    """Keep only listings whose title matches at least one role keyword.
+
+    This is the last line of defence against non-relevant jobs that slip
+    through broad API searches or description-based keyword matching.
+
+    In addition to matching full keywords as substrings, individual words
+    that belong to ``_SOFTWARE_ROLE_WORDS`` are extracted from multi-word
+    keywords and used as additional matchers.  This means a keyword such as
+    "graphics engineer" also lets through "Senior Software Engineer" because
+    the word "engineer" is recognised as a software-role indicator.
+    """
+    if not role_keywords:
+        return jobs
+
+    kw_lower = [kw.lower() for kw in role_keywords]
+
+    # Extract individual role-indicator words for broader matching
+    role_words: set[str] = set()
+    for kw in kw_lower:
+        for word in kw.split():
+            if word in _SOFTWARE_ROLE_WORDS:
+                role_words.add(word)
+
+    all_matchers = list(dict.fromkeys(kw_lower + sorted(role_words)))
+
+    kept = [
+        j for j in jobs
+        if any(m in j.title.lower() for m in all_matchers)
+    ]
+    removed = len(jobs) - len(kept)
+    if removed:
+        logger.info(
+            "Title relevance filter removed %d/%d listings not matching role keywords",
+            removed,
+            len(jobs),
+        )
+    return kept
+
+
 def _deduplicate(jobs: list[JobListing]) -> list[JobListing]:
     seen: dict[str, JobListing] = {}
     for job in jobs:
@@ -237,18 +325,31 @@ async def _run(args: argparse.Namespace) -> None:
         )
 
     # Merge CLI keyword overrides
-    keywords = list(config.search.keywords)
+    search_keywords = list(config.search.keywords)
     if args.keywords:
-        keywords.extend(args.keywords)
+        search_keywords.extend(args.keywords)
 
     # Inject role keywords from the applicant profile
     profile = load_profile(args.profile)
-    if profile and profile.role_keywords:
-        keywords.extend(profile.role_keywords)
-        logger.info("Added role keywords from profile '%s': %s", args.profile, profile.role_keywords)
+    role_keywords: list[str] = []
+    if profile:
+        if profile.role_keywords:
+            role_keywords = list(profile.role_keywords)
+        elif profile.target_roles:
+            role_keywords = _derive_role_keywords(profile)
+            logger.info("Derived role keywords from target_roles: %s", role_keywords)
+        if role_keywords:
+            logger.info("Role keywords for profile '%s': %s", args.profile, role_keywords)
 
-    # deduplicate while preserving order
-    keywords = list(dict.fromkeys(keywords))
+    # When role keywords exist, use ONLY role keywords (plus any explicit
+    # --keywords from the CLI).  The default search keywords like "remote",
+    # "worldwide", "global" etc. are useless on remote-specific job boards
+    # and cause every listing to match, drowning out the role filter.
+    if role_keywords:
+        cli_extra = list(args.keywords) if args.keywords else []
+        keywords = list(dict.fromkeys(role_keywords + cli_extra))
+    else:
+        keywords = list(dict.fromkeys(search_keywords))
 
     threshold = args.threshold if args.threshold is not None else config.ranking.threshold
 
@@ -293,6 +394,16 @@ async def _run(args: argparse.Namespace) -> None:
 
         # Deduplicate
         all_jobs = _deduplicate(all_jobs)
+
+        # Pre-filter: discard non-remote locations
+        if config.filter.remote_only:
+            all_jobs = _filter_remote(all_jobs)
+            console.print(f"  {len(all_jobs)} listings after remote-only filter")
+
+        # Pre-filter: discard jobs whose title doesn't match any role keyword
+        if role_keywords:
+            all_jobs = _filter_title_relevance(all_jobs, role_keywords)
+            console.print(f"  {len(all_jobs)} listings after title relevance filter")
 
         # Randomly sample if --max-listings is set (pre-ranking filter)
         if args.max_listings and len(all_jobs) > args.max_listings:

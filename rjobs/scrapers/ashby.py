@@ -43,11 +43,10 @@ class AshbyScraper(BaseScraper):
         searchable = " ".join(
             [
                 posting.get("title", ""),
-                posting.get("locationName", ""),
                 posting.get("departmentName", ""),
             ]
         ).lower()
-        return any(kw in searchable for kw in keywords) or "remote" in searchable
+        return any(kw in searchable for kw in keywords)
 
     def _parse_posting(self, posting: dict, company: str) -> JobListing:
         pid = posting.get("id", "")

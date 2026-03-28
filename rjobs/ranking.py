@@ -110,8 +110,8 @@ async def _rank_batch(
     try:
         parsed = json.loads(json_str)
     except json.JSONDecodeError:
-        logger.warning("Could not parse LLM ranking response as JSON")
-        logger.debug("Raw response: %s", content[:500])
+        logger.warning("Could not parse LLM ranking response as JSON\n"
+                       "Raw response: %s", content)
         return
 
     # Handle {"rankings": [...]} or direct list [...]
