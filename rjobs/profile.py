@@ -10,8 +10,8 @@ import yaml
 from bs4 import BeautifulSoup
 from openai import AsyncOpenAI
 
-from remote_job_scraper.auth import cookie_help_message, has_credentials
-from remote_job_scraper.config import Config
+from rjobs.auth import cookie_help_message, has_credentials
+from rjobs.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,8 @@ Respond ONLY with a JSON object with these keys:
   "experience_areas": ["list of domains/industries the person has worked in"],
   "years_of_experience": "approximate total years of professional experience",
   "education": "highest degree and field, institution if notable",
-  "preferences": "any stated preferences (remote, location, company size, etc.)"
+  "preferences": "any stated preferences (remote, location, company size, etc.)",
+  "role_keywords": ["short search keywords a job board would understand, e.g. 'backend engineer', 'python developer', 'devops', 'data scientist'. Infer 3-8 keywords from the resume that best capture the roles this person should search for."]
 }
 """
 
@@ -55,6 +56,7 @@ class ApplicantProfile:
     years_of_experience: str = ""
     education: str = ""
     preferences: str = ""
+    role_keywords: list[str] = field(default_factory=list)
 
     def to_ranking_context(self) -> str:
         """Format the profile as context to inject into the ranking prompt."""
@@ -73,6 +75,8 @@ class ApplicantProfile:
             parts.append(f"Education: {self.education}")
         if self.preferences:
             parts.append(f"Preferences: {self.preferences}")
+        if self.role_keywords:
+            parts.append(f"Role keywords: {', '.join(self.role_keywords)}")
         return "\n".join(parts)
 
 

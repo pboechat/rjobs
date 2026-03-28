@@ -4,14 +4,14 @@ from urllib.parse import quote_plus
 
 from bs4 import BeautifulSoup
 
-from remote_job_scraper.auth import (
+from rjobs.auth import (
     apply_cookies,
     cookie_help_message,
     has_credentials,
     session_login,
 )
-from remote_job_scraper.models import JobListing, Source
-from remote_job_scraper.scrapers.base import BaseScraper
+from rjobs.models import JobListing, Source
+from rjobs.scrapers.base import BaseScraper
 
 
 class GlassdoorScraper(BaseScraper):

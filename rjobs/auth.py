@@ -4,7 +4,7 @@ import logging
 
 import httpx
 
-from remote_job_scraper.config import Credentials
+from rjobs.config import Credentials
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +35,8 @@ async def google_sso_login(
 
         logger.warning(
             "Google SSO via HTTP is unreliable due to bot detection. "
-            "Provide session cookies in config.yml instead - see instructions "
-            "in the cookies section of your config.yml template."
+            "Provide session cookies in ~/.config/rjobs/cookies/ instead - "
+            "run 'rjobs --init-cookies' for setup instructions."
         )
         return False
     except Exception as e:
@@ -106,7 +106,7 @@ def cookie_help_message(site: str) -> str:
         f"  4. Refresh the page (F5)\n"
         f"  5. Click any request to the site's domain\n"
         f"  6. Under 'Headers', copy the full 'Cookie' value\n"
-        f"  7. Paste it into config.yml under credentials.cookies.{site}\n"
+        f"  7. Paste it into ~/.config/rjobs/cookies/{site}\n"
         f"  Tip: {tip}" if tip else ""
     )
 

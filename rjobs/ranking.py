@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 
 from openai import AsyncOpenAI
 
-from remote_job_scraper.config import DEFAULT_SYSTEM_PROMPT, Config
-from remote_job_scraper.models import JobListing
-from remote_job_scraper.profile import load_profile
+from rjobs.config import DEFAULT_SYSTEM_PROMPT, Config
+from rjobs.models import JobListing
+from rjobs.profile import load_profile
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,12 @@ You also have the applicant's profile below. Use it to personalize your ranking:
 """
 
 
-async def rank_jobs(jobs: list[JobListing], config: Config, profile_name: str = "default") -> list[JobListing]:
+async def rank_jobs(
+    jobs: list[JobListing],
+    config: Config,
+    profile_name: str = "default",
+    on_progress: Callable[[int, int], None] | None = None,
+) -> list[JobListing]:
     if not jobs:
         return jobs
 
@@ -49,6 +55,9 @@ async def rank_jobs(jobs: list[JobListing], config: Config, profile_name: str = 
         except Exception as e:
             logger.error("Ranking batch %d failed: %s", batch_idx + 1, e)
         ranked.extend(batch)
+
+        if on_progress:
+            on_progress(batch_idx + 1, total_batches)
 
     return ranked
 
@@ -121,7 +130,13 @@ async def _rank_batch(
 
     for i, job in enumerate(batch):
         if i in rank_map:
-            job.rank = float(rank_map[i]["rank"])
+            raw_rank = float(rank_map[i]["rank"])
+            job.rank = max(0.0, min(10.0, raw_rank))
+            if raw_rank != job.rank:
+                logger.warning(
+                    "Clamped hallucinated rank %.1f -> %.1f for %s",
+                    raw_rank, job.rank, job.title,
+                )
             job.rank_reasoning = rank_map[i].get("reasoning", "")
 
     logger.debug("Ranked %d/%d jobs in batch", len(rank_map), len(batch))

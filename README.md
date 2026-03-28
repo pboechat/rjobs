@@ -1,4 +1,4 @@
-# Remote Job Scraper (`rjobs`)
+# rjobs (Remote Jobs Scraper)
 
 A CLI tool to search and rank remote job opportunities across multiple sources using LLM-powered analysis.
 
@@ -84,10 +84,11 @@ Applicant profiles let the ranking step use your background and preferences inst
 ### What they do
 
 - Parse a resume or LinkedIn profile into a structured applicant summary
-- Store target roles, skills, experience areas, education, and preferences
+- Store target roles, skills, experience areas, education, preferences, and **role keywords**
 - Inject that profile into the LLM ranking prompt when you run searches with ranking enabled
+- Automatically append the profile's `role_keywords` to the search keywords, so scrapers query for roles relevant to your background
 
-If the selected profile does not exist, job ranking still runs, but without profile personalization.
+If the selected profile does not exist, job ranking still runs, but without profile personalization or extra role keywords.
 
 ### Supported inputs
 
@@ -141,7 +142,7 @@ rjobs --init-config /path/to/config.yml
 
 ### Key sections
 
-**`credentials`** - Login details for auth-required sources. Google credentials are used for SSO on sites that support it. You can also paste browser session cookies as a fallback.
+**`credentials`** - Login details for auth-required sources. Google credentials are used for SSO on sites that support it. Browser session cookies are loaded from `~/.config/rjobs/cookies/` (see below).
 
 **`llm`** - OpenAI-compatible API endpoint. Works with OpenAI, Ollama, vLLM, llama.cpp server, LM Studio, etc.
 
@@ -162,11 +163,11 @@ rjobs [OPTIONS]
 | `-h`, `--help` | Show the built-in help text and exit. |
 | `--version` | Show the installed `rjobs` version and exit. |
 | `--config CONFIG` | Path to `config.yml`. Defaults to `~/.config/rjobs/config.yml`. |
-| `--init-config [PATH]` | Generate a template config file and exit. If `PATH` is omitted, the default config path is used. |
-| `--keywords KEYWORDS [KEYWORDS ...]` | Extra search keywords appended to `search.keywords` from the config. |
+| `--init-config [PATH]` | Generate a template config file and exit. If `PATH` is omitted, the default config path is used. || `--init-cookies` | Create cookie template files under `~/.config/rjobs/cookies/` and exit. || `--keywords KEYWORDS [KEYWORDS ...]` | Extra search keywords appended to `search.keywords` from the config. |
 | `--sources SOURCE [SOURCE ...]` | Limit the run to specific source IDs. |
 | `--format {table,json,csv}` | Output format for stdout. Default: `table`. |
 | `--max-results MAX_RESULTS` | Limit the number of displayed results after ranking and filtering. |
+| `--max-listings MAX_LISTINGS` | Randomly sample listings to this count before ranking. Useful for debugging or limiting LLM costs. |
 | `--threshold THRESHOLD` | Minimum ranking threshold from `0` to `10`. Overrides `ranking.threshold` from config. |
 | `--no-rank` | Skip LLM ranking entirely. Results are still scraped, deduplicated, and output. |
 | `--export FILE` | Export results to a file. `.json` and `.csv` are inferred from the extension. |
@@ -181,7 +182,7 @@ For sites requiring auth (Otta, Wellfound, LinkedIn, Glassdoor):
 
 1. **Google SSO** - The tool attempts HTTP-based Google SSO login. Due to bot detection, this may not work reliably. Best used when available.
 
-2. **Session cookies** - Export cookies from your browser and paste them in the config under `credentials.cookies`. This is the most reliable fallback.
+2. **Session cookies** - Export cookies from your browser and place them in individual files under `~/.config/rjobs/cookies/`. Run `rjobs --init-cookies` to create template files with instructions. Each site gets its own file (e.g. `~/.config/rjobs/cookies/linkedin`). This is the most reliable fallback, and cookies are kept separate from the main config since they expire frequently.
 
 3. **Direct login** - Email/password login is attempted for sites that support it.
 

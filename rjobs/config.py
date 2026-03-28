@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 APP_NAME = "rjobs"
 DEFAULT_CONFIG_DIR = Path.home() / ".config" / APP_NAME
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.yml"
+DEFAULT_COOKIES_DIR = DEFAULT_CONFIG_DIR / "cookies"
 
 DEFAULT_KEYWORDS: list[str] = [
     "remote",
@@ -35,7 +36,7 @@ Respond ONLY with a JSON object containing a "rankings" key whose value is an ar
 
 CONFIG_TEMPLATE = """\
 # Remote Job Scraper configuration
-# Docs: https://github.com/youruser/remote-job-scraper
+# Docs: https://github.com/youruser/rjobs
 
 credentials:
   google:
@@ -53,22 +54,9 @@ credentials:
   otta:
     email: ""
     password: ""
-  # Session cookies exported from your browser (fallback when login fails).
-  # How to get cookies from Chrome:
-  #   1. Open Chrome and log in to the site (URLs below)
-  #   2. Press F12 -> Network tab, then refresh the page (F5)
-  #   3. Click any request to the site's domain
-  #   4. Under 'Headers', copy the full 'Cookie' value
-  #   5. Paste it here as a single string
-  cookies:
-    # Login at https://app.otta.com/login
-    otta: ""
-    # Login at https://wellfound.com/login
-    wellfound: ""
-    # Login at https://www.linkedin.com/login
-    linkedin: ""
-    # Login at https://www.glassdoor.com/profile/login_input.htm
-    glassdoor: ""
+  # Session cookies are stored as individual files under ~/.config/rjobs/cookies/
+  # e.g. ~/.config/rjobs/cookies/linkedin, ~/.config/rjobs/cookies/glassdoor
+  # Run 'rjobs --init-cookies' to create the cookie directory with empty template files.
 
 llm:
   base_url: "http://localhost:11434/v1"
@@ -85,9 +73,7 @@ search:
     - "async"
     - "global"
     - "distributed"
-  role_keywords:
-    - "software engineer"
-    - "developer"
+
 
 sources:
   enabled: []  # empty = all enabled
@@ -158,7 +144,6 @@ class LLMConfig:
 @dataclass
 class SearchConfig:
     keywords: list[str] = field(default_factory=lambda: list(DEFAULT_KEYWORDS))
-    role_keywords: list[str] = field(default_factory=lambda: ["software engineer", "developer"])
 
 
 @dataclass
@@ -199,21 +184,37 @@ def _build_credentials(raw: dict) -> Credentials:
     return Credentials(email=raw.get("email", ""), password=raw.get("password", ""))
 
 
-def _load_config_dict(data: dict) -> Config:
+def _load_cookie(name: str, cookies_dir: Path) -> str:
+    """Read a cookie from *cookies_dir*/*name* if it exists."""
+    cookie_file = cookies_dir / name
+    if cookie_file.is_file():
+        lines = cookie_file.read_text().splitlines()
+        content = "\n".join(l for l in lines if not l.lstrip().startswith("#")).strip()
+        if content:
+            logger.debug("Loaded cookie for %s from %s", name, cookie_file)
+            return content
+    return ""
+
+
+def _load_cookies(cookies_dir: Path) -> CookieStore:
+    """Build a CookieStore from files in *cookies_dir*."""
+    return CookieStore(
+        otta=_load_cookie("otta", cookies_dir),
+        wellfound=_load_cookie("wellfound", cookies_dir),
+        linkedin=_load_cookie("linkedin", cookies_dir),
+        glassdoor=_load_cookie("glassdoor", cookies_dir),
+    )
+
+
+def _load_config_dict(data: dict, cookies_dir: Path = DEFAULT_COOKIES_DIR) -> Config:
     creds_raw = data.get("credentials", {})
-    cookies_raw = creds_raw.get("cookies", {})
     credentials = CredentialsConfig(
         google=_build_credentials(creds_raw.get("google", {})),
         linkedin=_build_credentials(creds_raw.get("linkedin", {})),
         glassdoor=_build_credentials(creds_raw.get("glassdoor", {})),
         wellfound=_build_credentials(creds_raw.get("wellfound", {})),
         otta=_build_credentials(creds_raw.get("otta", {})),
-        cookies=CookieStore(
-            otta=cookies_raw.get("otta", ""),
-            wellfound=cookies_raw.get("wellfound", ""),
-            linkedin=cookies_raw.get("linkedin", ""),
-            glassdoor=cookies_raw.get("glassdoor", ""),
-        ),
+        cookies=_load_cookies(cookies_dir),
     )
 
     _llm_defaults = LLMConfig()
@@ -229,7 +230,6 @@ def _load_config_dict(data: dict) -> Config:
     search_raw = data.get("search", {})
     search = SearchConfig(
         keywords=search_raw.get("keywords", list(DEFAULT_KEYWORDS)),
-        role_keywords=search_raw.get("role_keywords", ["software engineer", "developer"]),
     )
 
     _ats_defaults = ATSCompanies()
@@ -284,3 +284,35 @@ def write_template_config(path: Path | None = None) -> Path:
     config_path.write_text(CONFIG_TEMPLATE)
     logger.info("Wrote config template to %s", config_path)
     return config_path
+
+
+COOKIE_FILE_TEMPLATE = """\
+# Paste the full Cookie header value from your browser below.
+# How to get cookies from Chrome:
+#   1. Open Chrome and log in to {login_url}
+#   2. Press F12 -> Network tab, then refresh the page (F5)
+#   3. Click any request to the site's domain
+#   4. Under 'Headers', copy the full 'Cookie' value
+#   5. Paste it below (replace this comment block)
+"""
+
+_COOKIE_LOGIN_URLS: dict[str, str] = {
+    "otta": "https://app.otta.com/login",
+    "wellfound": "https://wellfound.com/login",
+    "linkedin": "https://www.linkedin.com/login",
+    "glassdoor": "https://www.glassdoor.com/profile/login_input.htm",
+}
+
+
+def write_cookie_templates(cookies_dir: Path | None = None) -> Path:
+    """Create the cookies directory with empty template files for each site."""
+    cdir = cookies_dir or DEFAULT_COOKIES_DIR
+    cdir.mkdir(parents=True, exist_ok=True)
+    for name, login_url in _COOKIE_LOGIN_URLS.items():
+        cookie_file = cdir / name
+        if not cookie_file.exists():
+            cookie_file.write_text(COOKIE_FILE_TEMPLATE.format(login_url=login_url))
+            logger.info("Created cookie template: %s", cookie_file)
+        else:
+            logger.info("Cookie file already exists, skipping: %s", cookie_file)
+    return cdir

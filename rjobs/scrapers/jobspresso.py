@@ -4,8 +4,8 @@ from urllib.parse import quote_plus
 
 from bs4 import BeautifulSoup
 
-from remote_job_scraper.models import JobListing, Source
-from remote_job_scraper.scrapers.base import BaseScraper
+from rjobs.models import JobListing, Source
+from rjobs.scrapers.base import BaseScraper
 
 
 class JobspressoScraper(BaseScraper):

@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from remote_job_scraper.models import JobListing, Source
+from rjobs.models import JobListing, Source
 
 if TYPE_CHECKING:
-    from remote_job_scraper.config import Config
+    from rjobs.config import Config
 
 logger = logging.getLogger(__name__)
 

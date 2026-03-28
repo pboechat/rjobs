@@ -4,8 +4,8 @@ from urllib.parse import quote_plus
 
 from bs4 import BeautifulSoup
 
-from remote_job_scraper.models import JobListing, Source
-from remote_job_scraper.scrapers.base import BaseScraper
+from rjobs.models import JobListing, Source
+from rjobs.scrapers.base import BaseScraper
 
 REMOTE_ATTR = "032b3046-06a3-4876-8dfd-474eb5e7ed11"
 

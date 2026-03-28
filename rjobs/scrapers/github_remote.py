@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import re
 
-from remote_job_scraper.models import JobListing, Source
-from remote_job_scraper.scrapers.base import BaseScraper
+from rjobs.models import JobListing, Source
+from rjobs.scrapers.base import BaseScraper
 
 RAW_URL = "https://raw.githubusercontent.com/yanirs/established-remote/master/README.md"
 # Match markdown table rows: | Company | URL | Region | ... |

@@ -3,21 +3,22 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import random
 import sys
 from pathlib import Path
 
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from remote_job_scraper import __version__
-from remote_job_scraper.config import (
+from rjobs import __version__
+from rjobs.config import (
     DEFAULT_CONFIG_PATH,
     load_config,
+    write_cookie_templates,
     write_template_config,
 )
-from remote_job_scraper.models import JobListing, Source
-from remote_job_scraper.output import display_table, to_csv, to_json
-from remote_job_scraper.profile import (
+from rjobs.models import JobListing, Source
+from rjobs.output import display_table, to_csv, to_json
+from rjobs.profile import (
     digest_resume,
     extract_text_from_file,
     is_linkedin_profile_url,
@@ -25,10 +26,10 @@ from remote_job_scraper.profile import (
     save_profile,
     scrape_linkedin_profile,
 )
-from remote_job_scraper.ranking import rank_jobs
-from remote_job_scraper.scrapers import build_http_client, get_scrapers
+from rjobs.ranking import rank_jobs
+from rjobs.scrapers import build_http_client, get_scrapers
 
-logger = logging.getLogger("remote_job_scraper")
+logger = logging.getLogger("rjobs")
 console = Console()
 
 VALID_SOURCES = [s.value for s in Source]
@@ -52,6 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
         const="default",
         metavar="PATH",
         help="Generate a template config.yml and exit",
+    )
+    parser.add_argument(
+        "--init-cookies",
+        action="store_true",
+        help="Create cookie template files under ~/.config/rjobs/cookies/ and exit",
     )
     parser.add_argument(
         "--keywords",
@@ -78,6 +84,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Max number of results to display",
+    )
+    parser.add_argument(
+        "--max-listings",
+        type=int,
+        default=None,
+        help="Randomly sample listings to this count before ranking (useful for debugging)",
     )
     parser.add_argument(
         "--threshold",
@@ -187,7 +199,9 @@ async def _handle_parse_resume(args: argparse.Namespace) -> None:
         console.print(f"  Target roles: {', '.join(profile.target_roles)}")
     if profile.skills:
         console.print(f"  Skills: {', '.join(profile.skills[:10])}{'...' if len(profile.skills) > 10 else ''}")
-    console.print("\nThis profile will be used to personalize job ranking.")
+    if profile.role_keywords:
+        console.print(f"  Role keywords: {', '.join(profile.role_keywords)}")
+    console.print("\nThis profile will be used to personalize job ranking and search.")
     sys.exit(0)
 
 
@@ -226,6 +240,13 @@ async def _run(args: argparse.Namespace) -> None:
     keywords = list(config.search.keywords)
     if args.keywords:
         keywords.extend(args.keywords)
+
+    # Inject role keywords from the applicant profile
+    profile = load_profile(args.profile)
+    if profile and profile.role_keywords:
+        keywords.extend(profile.role_keywords)
+        logger.info("Added role keywords from profile '%s': %s", args.profile, profile.role_keywords)
+
     # deduplicate while preserving order
     keywords = list(dict.fromkeys(keywords))
 
@@ -245,34 +266,51 @@ async def _run(args: argparse.Namespace) -> None:
 
         # Run all scrapers concurrently
         all_jobs: list[JobListing] = []
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Scraping...", total=None)
+        total_scrapers = len(scrapers)
+        completed = 0
 
-            results = await asyncio.gather(
-                *[s.search(keywords) for s in scrapers],
-                return_exceptions=True,
-            )
+        async def _run_scraper(scraper):
+            nonlocal completed
+            try:
+                result = await scraper.search(keywords)
+            except Exception as e:
+                logger.error("%s raised: %s", scraper.source.value, e)
+                result = e
+            completed += 1
+            count = len(result) if isinstance(result, list) else 0
+            console.print(f"  Scraped source {completed}/{total_scrapers} ({scraper.source.value}) - {count} listings")
+            return scraper, result
 
-            for scraper, result in zip(scrapers, results):
-                if isinstance(result, Exception):
-                    logger.error("%s raised: %s", scraper.source.value, result)
-                elif isinstance(result, list):
-                    all_jobs.extend(result)
+        outcomes = await asyncio.gather(*[_run_scraper(s) for s in scrapers])
 
-            progress.update(task, description=f"Found {len(all_jobs)} listings")
+        for scraper, result in outcomes:
+            if isinstance(result, Exception):
+                pass  # already logged above
+            elif isinstance(result, list):
+                all_jobs.extend(result)
+
+        console.print(f"  Found {len(all_jobs)} listings")
 
         # Deduplicate
         all_jobs = _deduplicate(all_jobs)
 
+        # Randomly sample if --max-listings is set (pre-ranking filter)
+        if args.max_listings and len(all_jobs) > args.max_listings:
+            all_jobs = random.sample(all_jobs, args.max_listings)
+            console.print(f"  Sampled {args.max_listings} listings (--max-listings)")
+
         # Rank with LLM
         if not args.no_rank and all_jobs:
-            console.print(f"\n[bold]Ranking {len(all_jobs)} listings via LLM...[/bold]")
+            console.print(f"\n[bold]Ranking {len(all_jobs)} listings via LLM ({config.llm.model})...[/bold]")
             try:
-                all_jobs = await rank_jobs(all_jobs, config, args.profile)
+                all_jobs = await rank_jobs(
+                    all_jobs,
+                    config,
+                    args.profile,
+                    on_progress=lambda done, total: console.print(
+                        f"  Ranked batch {done}/{total}"
+                    ),
+                )
             except Exception as e:
                 logger.error("LLM ranking failed: %s", e)
                 console.print("[yellow]LLM ranking failed - showing unranked results.[/yellow]")
@@ -328,6 +366,15 @@ def main() -> None:
 
     if args.init_config is not None:
         _handle_init_config(args)
+
+    if args.init_cookies:
+        out_dir = write_cookie_templates()
+        console.print(f"[green]Cookie templates created in:[/green] {out_dir}")
+        console.print(
+            "Paste your browser cookie strings into the files there.\n"
+            "See instructions inside each file for how to export cookies."
+        )
+        sys.exit(0)
 
     if args.parse_resume is not None:
         try:

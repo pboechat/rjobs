@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from remote_job_scraper.auth import (
+from rjobs.auth import (
     apply_cookies,
     cookie_help_message,
     google_sso_login,
     has_credentials,
 )
-from remote_job_scraper.models import JobListing, Source
-from remote_job_scraper.scrapers.base import BaseScraper
+from rjobs.models import JobListing, Source
+from rjobs.scrapers.base import BaseScraper
 
 
 class WellfoundScraper(BaseScraper):

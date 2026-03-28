@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from remote_job_scraper.models import JobListing, Source
-from remote_job_scraper.scrapers.base import BaseScraper
+from rjobs.models import JobListing, Source
+from rjobs.scrapers.base import BaseScraper
 
 
 class HimalayasCompaniesScraper(BaseScraper):

@@ -4,27 +4,27 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from remote_job_scraper.scrapers.ashby import AshbyScraper
-from remote_job_scraper.scrapers.base import DEFAULT_HEADERS, BaseScraper
-from remote_job_scraper.scrapers.github_remote import GitHubRemoteScraper
-from remote_job_scraper.scrapers.glassdoor import GlassdoorScraper
-from remote_job_scraper.scrapers.greenhouse import GreenhouseScraper
-from remote_job_scraper.scrapers.himalayas import HimalayasScraper
-from remote_job_scraper.scrapers.himalayas_companies import HimalayasCompaniesScraper
-from remote_job_scraper.scrapers.hn_whoishiring import HNWhoIsHiringScraper
-from remote_job_scraper.scrapers.indeed import IndeedScraper
-from remote_job_scraper.scrapers.jobspresso import JobspressoScraper
-from remote_job_scraper.scrapers.lever import LeverScraper
-from remote_job_scraper.scrapers.linkedin import LinkedInScraper
-from remote_job_scraper.scrapers.otta import OttaScraper
-from remote_job_scraper.scrapers.remoteok import RemoteOKScraper
-from remote_job_scraper.scrapers.remoteok_companies import RemoteOKCompaniesScraper
-from remote_job_scraper.scrapers.remotive import RemotiveScraper
-from remote_job_scraper.scrapers.wellfound import WellfoundScraper
-from remote_job_scraper.scrapers.weworkremotely import WeWorkRemotelyScraper
+from rjobs.scrapers.ashby import AshbyScraper
+from rjobs.scrapers.base import DEFAULT_HEADERS, BaseScraper
+from rjobs.scrapers.github_remote import GitHubRemoteScraper
+from rjobs.scrapers.glassdoor import GlassdoorScraper
+from rjobs.scrapers.greenhouse import GreenhouseScraper
+from rjobs.scrapers.himalayas import HimalayasScraper
+from rjobs.scrapers.himalayas_companies import HimalayasCompaniesScraper
+from rjobs.scrapers.hn_whoishiring import HNWhoIsHiringScraper
+from rjobs.scrapers.indeed import IndeedScraper
+from rjobs.scrapers.jobspresso import JobspressoScraper
+from rjobs.scrapers.lever import LeverScraper
+from rjobs.scrapers.linkedin import LinkedInScraper
+from rjobs.scrapers.otta import OttaScraper
+from rjobs.scrapers.remoteok import RemoteOKScraper
+from rjobs.scrapers.remoteok_companies import RemoteOKCompaniesScraper
+from rjobs.scrapers.remotive import RemotiveScraper
+from rjobs.scrapers.wellfound import WellfoundScraper
+from rjobs.scrapers.weworkremotely import WeWorkRemotelyScraper
 
 if TYPE_CHECKING:
-    from remote_job_scraper.config import Config
+    from rjobs.config import Config
 
 ALL_SCRAPERS: list[type[BaseScraper]] = [
     WeWorkRemotelyScraper,

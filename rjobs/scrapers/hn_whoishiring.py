@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
-from remote_job_scraper.models import JobListing, Source
-from remote_job_scraper.scrapers.base import BaseScraper
+from rjobs.models import JobListing, Source
+from rjobs.scrapers.base import BaseScraper
 
 # Regex to parse HN "Who is Hiring" comment headers
 # Typical format: "Company Name | Role | Location | Salary | URL"

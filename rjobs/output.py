@@ -7,7 +7,7 @@ import json
 from rich.console import Console
 from rich.table import Table
 
-from remote_job_scraper.models import JobListing
+from rjobs.models import JobListing
 
 
 def display_table(jobs: list[JobListing], show_reasoning: bool = False) -> None:
